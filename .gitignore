@@ -1,0 +1,25 @@
+# Large media files
+*.mp4
+*.mov
+*.avi
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.temp
+
+# Node modules (if you add any build tools later)
+node_modules/
+package-lock.json
+
+# Export files (optional - uncomment if you don't want to track exports)
+# orders-export-*.json
