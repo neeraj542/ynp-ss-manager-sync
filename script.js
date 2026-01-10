@@ -1,12 +1,106 @@
-// Storage key for localStorage
+// Storage key for localStorage (fallback only)
 const STORAGE_KEY = 'orderScreenshots';
+
+// GitHub API instance
+let githubAPI;
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {
+    githubAPI = new GitHubAPI();
+    checkGitHubSetup();
     loadOrders();
     updateStats();
     setupEventListeners();
 });
+
+// Check if GitHub is configured
+function checkGitHubSetup() {
+    if (!githubAPI.isConfigured()) {
+        showGitHubSetupPrompt();
+    } else {
+        updateSyncButtonStatus(true);
+    }
+}
+
+// Show GitHub setup prompt
+function showGitHubSetupPrompt() {
+    const syncBtn = document.getElementById('syncBtn');
+    syncBtn.innerHTML = '<span class="sync-icon">⚠️</span> Setup Required';
+    syncBtn.style.background = 'var(--warning)';
+}
+
+// Update sync button status
+function updateSyncButtonStatus(configured) {
+    const syncBtn = document.getElementById('syncBtn');
+    const syncBtnText = document.getElementById('syncBtnText');
+
+    if (configured) {
+        syncBtn.style.background = 'linear-gradient(135deg, var(--primary), var(--secondary))';
+        if (syncBtnText) {
+            syncBtnText.textContent = 'Refresh Orders';
+        }
+    }
+}
+
+// Open GitHub settings modal
+function openGitHubSettings() {
+    const modal = document.getElementById('githubModal');
+    const tokenInput = document.getElementById('githubToken');
+
+    if (githubAPI.isConfigured()) {
+        tokenInput.value = '••••••••••••••••'; // Show masked token
+    }
+
+    modal.style.display = 'block';
+}
+
+// Close GitHub settings modal
+function closeGitHubModal() {
+    document.getElementById('githubModal').style.display = 'none';
+}
+
+// Save GitHub token
+async function saveGitHubToken() {
+    const tokenInput = document.getElementById('githubToken');
+    const statusDiv = document.getElementById('tokenStatus');
+    const token = tokenInput.value.trim();
+
+    if (!token || token === '••••••••••••••••') {
+        statusDiv.style.display = 'block';
+        statusDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+        statusDiv.style.color = 'var(--danger)';
+        statusDiv.textContent = '❌ Please enter a valid token';
+        return;
+    }
+
+    // Test the token
+    statusDiv.style.display = 'block';
+    statusDiv.style.background = 'rgba(99, 102, 241, 0.1)';
+    statusDiv.style.color = 'var(--primary)';
+    statusDiv.textContent = '🔄 Testing token...';
+
+    try {
+        githubAPI.setToken(token);
+
+        // Test by fetching repo info
+        await githubAPI.request(`/repos/${githubAPI.owner}/${githubAPI.repo}`);
+
+        statusDiv.style.background = 'rgba(16, 185, 129, 0.1)';
+        statusDiv.style.color = 'var(--success)';
+        statusDiv.textContent = '✅ Token saved successfully!';
+
+        updateSyncButtonStatus(true);
+
+        setTimeout(() => {
+            closeGitHubModal();
+            loadOrders(); // Reload orders from GitHub
+        }, 1500);
+    } catch (error) {
+        statusDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+        statusDiv.style.color = 'var(--danger)';
+        statusDiv.textContent = `❌ Invalid token: ${error.message}`;
+    }
+}
 
 // Setup event listeners
 function setupEventListeners() {
@@ -26,15 +120,25 @@ function setupEventListeners() {
     document.getElementById('syncBtn').addEventListener('click', handleSync);
 
     // Modal close
-    document.querySelector('.close').addEventListener('click', closeModal);
+    const closeButtons = document.querySelectorAll('.close');
+    closeButtons.forEach(btn => {
+        btn.addEventListener('click', closeModal);
+    });
+
     document.getElementById('modal').addEventListener('click', (e) => {
         if (e.target.id === 'modal') closeModal();
     });
 }
 
 // Handle form submission
-function handleFormSubmit(e) {
+async function handleFormSubmit(e) {
     e.preventDefault();
+
+    if (!githubAPI.isConfigured()) {
+        alert('⚠️ Please configure GitHub token first!\n\nClick the Settings button to set up your Personal Access Token.');
+        openGitHubSettings();
+        return;
+    }
 
     const orderId = document.getElementById('orderId').value.trim();
     const productName = document.getElementById('productName').value.trim();
@@ -58,29 +162,44 @@ function handleFormSubmit(e) {
         return;
     }
 
+    // Show loading state
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    const originalText = submitBtn.textContent;
+    submitBtn.textContent = '⏳ Uploading to GitHub...';
+    submitBtn.disabled = true;
+
     fileInputs.forEach(input => {
         if (input.files.length > 0) {
             const type = input.dataset.type;
             const file = input.files[0];
             const reader = new FileReader();
 
-            reader.onload = (e) => {
+            reader.onload = async (e) => {
                 screenshots[type] = {
                     data: e.target.result,
-                    filename: `${type}_ss_${orderId}.${file.name.split('.').pop()}`
+                    filename: `${type}.${file.name.split('.').pop()}`
                 };
 
                 filesProcessed++;
 
                 if (filesProcessed === totalFiles) {
-                    saveOrder({
-                        id: orderId,
-                        productName,
-                        orderDate,
-                        platform,
-                        screenshots,
-                        createdAt: new Date().toISOString()
-                    });
+                    try {
+                        await saveOrderToGitHub({
+                            id: orderId,
+                            productName,
+                            orderDate,
+                            platform,
+                            screenshots,
+                            createdAt: new Date().toISOString()
+                        });
+
+                        submitBtn.textContent = originalText;
+                        submitBtn.disabled = false;
+                    } catch (error) {
+                        submitBtn.textContent = originalText;
+                        submitBtn.disabled = false;
+                        alert(`❌ Error uploading to GitHub: ${error.message}`);
+                    }
                 }
             };
 
@@ -89,136 +208,164 @@ function handleFormSubmit(e) {
     });
 }
 
-// Save order to localStorage and prepare for file-based storage
-function saveOrder(order) {
-    const orders = getOrders();
+// Save order to GitHub
+async function saveOrderToGitHub(order) {
+    try {
+        // Create order on GitHub
+        await githubAPI.createOrder(order.id, {
+            id: order.id,
+            productName: order.productName || "",
+            orderDate: order.orderDate || "",
+            platform: order.platform || "Other",
+            createdAt: order.createdAt,
+            updatedAt: new Date().toISOString(),
+            screenshots: Object.keys(order.screenshots).map(type => `${type}.png`)
+        }, order.screenshots);
 
-    // Check if order already exists
-    const existingIndex = orders.findIndex(o => o.id === order.id);
+        // Reset form
+        document.getElementById('orderForm').reset();
 
-    if (existingIndex !== -1) {
-        if (confirm('Order ID already exists. Do you want to update it?')) {
-            orders[existingIndex] = order;
-        } else {
-            return;
-        }
-    } else {
-        orders.push(order);
+        // Clear previews
+        document.querySelectorAll('.preview').forEach(preview => {
+            preview.innerHTML = '';
+        });
+
+        // Reload orders list
+        await loadOrders();
+        updateStats();
+
+        alert(`✅ Order ${order.id} uploaded to GitHub successfully!\n\nFolder created: orders/${order.id}/\nAll screenshots uploaded.`);
+    } catch (error) {
+        console.error('Error saving order:', error);
+        throw error;
     }
-
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(orders));
-
-    // Reset form
-    document.getElementById('orderForm').reset();
-
-    // Clear previews
-    document.querySelectorAll('.preview').forEach(preview => {
-        preview.innerHTML = '';
-    });
-
-    // Reload orders list
-    loadOrders();
-    updateStats();
-
-    // Generate order.json metadata file
-    generateOrderMetadata(order);
-
-    // Auto-download all screenshots with proper naming
-    downloadOrderScreenshots(order.id);
-
-    alert(`✅ Order saved!\n\nNext steps:\n1. Screenshots will download automatically\n2. Create folder: orders/${order.id}/\n3. Move screenshots to that folder\n4. Run: python3 order-manager.py sync`);
 }
 
-// Generate order.json metadata file
-function generateOrderMetadata(order) {
-    const metadata = {
-        id: order.id,
-        productName: order.productName || "",
-        orderDate: order.orderDate || "",
-        platform: order.platform || "Other",
-        createdAt: order.createdAt,
-        updatedAt: new Date().toISOString(),
-        screenshots: Object.keys(order.screenshots).map(type => `${type}.png`)
-    };
-
-    // Create downloadable JSON file
-    const dataStr = JSON.stringify(metadata, null, 2);
-    const dataBlob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(dataBlob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `order_${order.id}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    console.log('\n=== ORDER SAVED ===');
-    console.log(`Order ID: ${order.id}`);
-    console.log(`Folder: orders/${order.id}/`);
-    console.log('\nFiles to organize:');
-    console.log(`  - order.json (downloaded)`);
-    Object.keys(order.screenshots).forEach(type => {
-        console.log(`  - ${type}.png`);
-    });
-    console.log('\n=== NEXT STEPS ===');
-    console.log(`1. Create folder: orders/${order.id}/`);
-    console.log(`2. Move order.json and screenshots to that folder`);
-    console.log(`3. Run: python3 order-manager.py sync`);
-    console.log('===================\n');
-}
-
-// Get all orders from localStorage
-function getOrders() {
-    const orders = localStorage.getItem(STORAGE_KEY);
-    return orders ? JSON.parse(orders) : [];
-}
-
-// Load and display orders
-function loadOrders(filter = '') {
-    const orders = getOrders();
+// Load and display orders from GitHub
+async function loadOrders(filter = '') {
     const ordersList = document.getElementById('ordersList');
 
-    const filteredOrders = orders.filter(order => {
-        const searchTerm = filter.toLowerCase();
-        return order.id.toLowerCase().includes(searchTerm) ||
-            (order.productName && order.productName.toLowerCase().includes(searchTerm)) ||
-            order.platform.toLowerCase().includes(searchTerm);
-    });
-
-    if (filteredOrders.length === 0) {
-        ordersList.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">No orders found. Add your first order!</p>';
+    if (!githubAPI.isConfigured()) {
+        ordersList.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">⚙️ Configure GitHub token to view orders</p>';
         return;
     }
 
-    ordersList.innerHTML = filteredOrders.map(order => `
-        <div class="order-item">
-            <div class="order-header">
-                <div>
-                    <div class="order-id">${order.id}</div>
-                    ${order.productName ? `<div style="color: var(--text-secondary); margin-top: 0.25rem;">${order.productName}</div>` : ''}
+    ordersList.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">🔄 Loading orders from GitHub...</p>';
+
+    try {
+        const orders = await githubAPI.getAllOrders();
+
+        const filteredOrders = orders.filter(order => {
+            const searchTerm = filter.toLowerCase();
+            return order.id.toLowerCase().includes(searchTerm) ||
+                (order.productName && order.productName.toLowerCase().includes(searchTerm)) ||
+                order.platform.toLowerCase().includes(searchTerm);
+        });
+
+        if (filteredOrders.length === 0) {
+            ordersList.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">📭 No orders found. Add your first order!</p>';
+            return;
+        }
+
+        ordersList.innerHTML = filteredOrders.map(order => `
+            <div class="order-item">
+                <div class="order-header">
+                    <div>
+                        <div class="order-id">${order.id}</div>
+                        ${order.productName ? `<div style="color: var(--text-secondary); margin-top: 0.25rem;">${order.productName}</div>` : ''}
+                    </div>
+                    <span class="order-platform">${order.platform}</span>
                 </div>
-                <span class="order-platform">${order.platform}</span>
+                <div class="order-details">
+                    ${order.orderDate ? `📅 ${new Date(order.orderDate).toLocaleDateString()}` : ''}
+                    ${order.createdAt ? `<span style="margin-left: 1rem;">🕒 Added ${new Date(order.createdAt).toLocaleDateString()}</span>` : ''}
+                </div>
+                <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+                    <button class="delete-btn" style="background: var(--primary);" onclick="viewOrderDetails('${order.id}')">View Details</button>
+                    <button class="delete-btn" style="background: var(--success);" onclick="downloadOrderFromGitHub('${order.id}')">Download All</button>
+                </div>
             </div>
-            <div class="order-details">
-                ${order.orderDate ? `📅 ${new Date(order.orderDate).toLocaleDateString()}` : ''}
-                ${order.createdAt ? `<span style="margin-left: 1rem;">🕒 Added ${new Date(order.createdAt).toLocaleDateString()}</span>` : ''}
+        `).join('');
+
+        updateStats();
+    } catch (error) {
+        console.error('Error loading orders:', error);
+        ordersList.innerHTML = `<p style="text-align: center; color: var(--danger); padding: 2rem;">❌ Error loading orders: ${error.message}</p>`;
+    }
+}
+
+// View order details
+async function viewOrderDetails(orderId) {
+    try {
+        const order = await githubAPI.getOrder(orderId);
+
+        if (!order) {
+            alert('Order not found');
+            return;
+        }
+
+        const screenshotsHtml = order.screenshots.map(ss => `
+            <img src="${ss.url}" 
+                 alt="${ss.type}" 
+                 class="screenshot-thumb" 
+                 title="${ss.type}"
+                 onclick="openModal('${ss.url}')"
+                 style="width: 100px; height: 100px; object-fit: cover; cursor: pointer; border-radius: 8px; margin: 0.5rem;">
+        `).join('');
+
+        const detailsHtml = `
+            <div style="padding: 1rem;">
+                <h3>Order: ${order.id}</h3>
+                <p><strong>Product:</strong> ${order.productName || 'N/A'}</p>
+                <p><strong>Platform:</strong> ${order.platform}</p>
+                <p><strong>Date:</strong> ${order.orderDate || 'N/A'}</p>
+                <p><strong>Screenshots (${order.screenshots.length}):</strong></p>
+                <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                    ${screenshotsHtml}
+                </div>
             </div>
-            <div class="order-screenshots">
-                ${Object.entries(order.screenshots).map(([type, screenshot]) => `
-                    <img src="${screenshot.data}" 
-                         alt="${type}" 
-                         class="screenshot-thumb" 
-                         title="${type}"
-                         onclick="openModal('${screenshot.data}')">
-                `).join('')}
-            </div>
-            <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
-                <button class="delete-btn" onclick="deleteOrder('${order.id}')">Delete</button>
-                <button class="delete-btn" style="background: var(--primary);" onclick="downloadOrderScreenshots('${order.id}')">Download All</button>
-            </div>
-        </div>
-    `).join('');
+        `;
+
+        const modal = document.getElementById('modal');
+        const modalContent = modal.querySelector('.modal-content');
+        modalContent.innerHTML = `
+            <span class="close" onclick="closeModal()">&times;</span>
+            ${detailsHtml}
+        `;
+        modal.style.display = 'block';
+    } catch (error) {
+        alert(`Error loading order details: ${error.message}`);
+    }
+}
+
+// Download order screenshots from GitHub
+async function downloadOrderFromGitHub(orderId) {
+    try {
+        const order = await githubAPI.getOrder(orderId);
+
+        if (!order || !order.screenshots) {
+            alert('No screenshots found for this order');
+            return;
+        }
+
+        // Download each screenshot
+        for (const screenshot of order.screenshots) {
+            const link = document.createElement('a');
+            link.href = screenshot.url;
+            link.download = screenshot.name;
+            link.target = '_blank';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            // Small delay between downloads
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
+
+        alert(`✅ Downloading ${order.screenshots.length} screenshots for order ${orderId}!`);
+    } catch (error) {
+        alert(`Error downloading screenshots: ${error.message}`);
+    }
 }
 
 // Handle file preview
@@ -241,106 +388,69 @@ function handleSearch(e) {
     loadOrders(e.target.value);
 }
 
-// Delete order
-function deleteOrder(orderId) {
-    if (confirm('Are you sure you want to delete this order?')) {
-        const orders = getOrders();
-        const filteredOrders = orders.filter(order => order.id !== orderId);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(filteredOrders));
-        loadOrders();
-        updateStats();
-    }
-}
-
-// Download all screenshots for an order
-function downloadOrderScreenshots(orderId) {
-    const orders = getOrders();
-    const order = orders.find(o => o.id === orderId);
-
-    if (!order) return;
-
-    let downloadCount = 0;
-    Object.entries(order.screenshots).forEach(([type, screenshot]) => {
-        setTimeout(() => {
-            const link = document.createElement('a');
-            link.href = screenshot.data;
-            // Use simple filename: ordered.png, delivered.png, etc.
-            const ext = screenshot.filename.split('.').pop();
-            link.download = `${type}.${ext}`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }, downloadCount * 200); // Stagger downloads
-        downloadCount++;
-    });
-
-    console.log(`📥 Downloading ${downloadCount} screenshots for order ${orderId}...`);
-}
-
 // Update statistics
-function updateStats() {
-    const orders = getOrders();
-    const totalScreenshots = orders.reduce((sum, order) => {
-        return sum + Object.keys(order.screenshots).length;
-    }, 0);
-
-    document.getElementById('totalOrders').textContent = orders.length;
-    document.getElementById('totalScreenshots').textContent = totalScreenshots;
-
-    const lastSync = localStorage.getItem('lastSync');
-    if (lastSync) {
-        const date = new Date(lastSync);
-        document.getElementById('lastSync').textContent = date.toLocaleDateString();
-    }
-}
-
-// Handle sync to GitHub
-function handleSync() {
-    const orders = getOrders();
-
-    if (orders.length === 0) {
-        alert('No orders to sync!');
+async function updateStats() {
+    if (!githubAPI.isConfigured()) {
+        document.getElementById('totalOrders').textContent = '-';
+        document.getElementById('totalScreenshots').textContent = '-';
         return;
     }
 
-    // Create export data
-    const exportData = {
-        exportDate: new Date().toISOString(),
-        totalOrders: orders.length,
-        orders: orders.map(order => ({
-            id: order.id,
-            productName: order.productName,
-            orderDate: order.orderDate,
-            platform: order.platform,
-            createdAt: order.createdAt,
-            screenshotCount: Object.keys(order.screenshots).length
-        }))
-    };
+    try {
+        const orders = await githubAPI.getAllOrders();
+        const totalScreenshots = orders.reduce((sum, order) => {
+            return sum + (order.screenshots ? order.screenshots.length : 0);
+        }, 0);
 
-    // Download JSON file
-    const dataStr = JSON.stringify(exportData, null, 2);
-    const dataBlob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(dataBlob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `orders-export-${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+        document.getElementById('totalOrders').textContent = orders.length;
+        document.getElementById('totalScreenshots').textContent = totalScreenshots;
+    } catch (error) {
+        console.error('Error updating stats:', error);
+    }
+}
 
-    // Update last sync time
-    localStorage.setItem('lastSync', new Date().toISOString());
-    updateStats();
+// Handle sync (refresh orders from GitHub)
+async function handleSync() {
+    if (!githubAPI.isConfigured()) {
+        openGitHubSettings();
+        return;
+    }
 
-    alert('Export file downloaded! Follow the README instructions to sync with GitHub.');
+    const syncBtn = document.getElementById('syncBtn');
+    const syncBtnText = document.getElementById('syncBtnText');
+    const originalText = syncBtnText.textContent;
+
+    syncBtnText.textContent = 'Refreshing...';
+    syncBtn.disabled = true;
+
+    try {
+        await loadOrders();
+        syncBtnText.textContent = '✅ Refreshed!';
+
+        setTimeout(() => {
+            syncBtnText.textContent = originalText;
+            syncBtn.disabled = false;
+        }, 2000);
+    } catch (error) {
+        syncBtnText.textContent = '❌ Error';
+        alert(`Error refreshing orders: ${error.message}`);
+
+        setTimeout(() => {
+            syncBtnText.textContent = originalText;
+            syncBtn.disabled = false;
+        }, 2000);
+    }
 }
 
 // Modal functions
 function openModal(imageSrc) {
     const modal = document.getElementById('modal');
-    const modalImg = document.getElementById('modalImage');
+    const modalContent = modal.querySelector('.modal-content');
+    modalContent.innerHTML = `
+        <span class="close" onclick="closeModal()">&times;</span>
+        <img src="${imageSrc}" alt="Screenshot" style="width: 100%; height: auto;">
+    `;
     modal.style.display = 'block';
-    modalImg.src = imageSrc;
 }
 
 function closeModal() {

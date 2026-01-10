@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Order Screenshot Manager</title>
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
     <div class="container">
         <header class="header">
@@ -13,10 +15,17 @@
                 <h1>📦 Order Screenshot Manager</h1>
                 <p class="subtitle">Manage your order screenshots efficiently</p>
             </div>
-            <button id="syncBtn" class="sync-btn">
-                <span class="sync-icon">🔄</span>
-                Sync to GitHub
-            </button>
+            <div style="display: flex; gap: 1rem;">
+                <button id="settingsBtn" class="sync-btn" onclick="openGitHubSettings()"
+                    style="background: var(--bg-secondary);">
+                    <span class="sync-icon">⚙️</span>
+                    Settings
+                </button>
+                <button id="syncBtn" class="sync-btn">
+                    <span class="sync-icon">🔄</span>
+                    <span id="syncBtnText">Sync to GitHub</span>
+                </button>
+            </div>
         </header>
 
         <div class="main-content">
@@ -140,6 +149,33 @@
         </div>
     </div>
 
+    <!-- GitHub Settings Modal -->
+    <div id="githubModal" class="modal">
+        <div class="modal-content" style="max-width: 500px;">
+            <span class="close" onclick="closeGitHubModal()">&times;</span>
+            <h2 style="margin-bottom: 1rem;">⚙️ GitHub Settings</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
+                Configure your GitHub Personal Access Token to enable automatic uploads.
+            </p>
+
+            <div class="form-group">
+                <label for="githubToken">Personal Access Token</label>
+                <input type="password" id="githubToken" placeholder="ghp_xxxxxxxxxxxx">
+                <small style="color: var(--text-secondary); display: block; margin-top: 0.5rem;">
+                    Create token at: <a href="https://github.com/settings/tokens/new" target="_blank"
+                        style="color: var(--primary);">GitHub Settings</a>
+                    <br>Required scopes: <code>repo</code>
+                </small>
+            </div>
+
+            <button onclick="saveGitHubToken()" class="submit-btn">Save Token</button>
+
+            <div id="tokenStatus" style="margin-top: 1rem; padding: 0.75rem; border-radius: 8px; display: none;"></div>
+        </div>
+    </div>
+
+    <script src="github-api.js"></script>
     <script src="script.js"></script>
 </body>
+
 </html>
