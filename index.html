@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Screenshot Manager</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="header-content">
+                <h1>📦 Order Screenshot Manager</h1>
+                <p class="subtitle">Manage your order screenshots efficiently</p>
+            </div>
+            <button id="syncBtn" class="sync-btn">
+                <span class="sync-icon">🔄</span>
+                Sync to GitHub
+            </button>
+        </header>
+
+        <div class="main-content">
+            <!-- Add New Order Section -->
+            <section class="card add-order-section">
+                <h2>➕ Add New Order</h2>
+                <form id="orderForm">
+                    <div class="form-group">
+                        <label for="orderId">Order ID *</label>
+                        <input type="text" id="orderId" placeholder="e.g., AMZ123456789" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="productName">Product Name</label>
+                        <input type="text" id="productName" placeholder="e.g., Wireless Headphones">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="orderDate">Order Date</label>
+                        <input type="date" id="orderDate">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="platform">Platform</label>
+                        <select id="platform">
+                            <option value="Amazon">Amazon</option>
+                            <option value="Flipkart">Flipkart</option>
+                            <option value="Meesho">Meesho</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+
+                    <div class="screenshot-upload-section">
+                        <h3>Upload Screenshots</h3>
+                        <div class="upload-grid">
+                            <div class="upload-item">
+                                <label for="orderedSS" class="upload-label">
+                                    <span class="upload-icon">📸</span>
+                                    <span>Ordered</span>
+                                </label>
+                                <input type="file" id="orderedSS" accept="image/*" data-type="ordered">
+                                <div class="preview" id="preview-ordered"></div>
+                            </div>
+
+                            <div class="upload-item">
+                                <label for="deliveredSS" class="upload-label">
+                                    <span class="upload-icon">📦</span>
+                                    <span>Delivered</span>
+                                </label>
+                                <input type="file" id="deliveredSS" accept="image/*" data-type="delivered">
+                                <div class="preview" id="preview-delivered"></div>
+                            </div>
+
+                            <div class="upload-item">
+                                <label for="ratingSS" class="upload-label">
+                                    <span class="upload-icon">⭐</span>
+                                    <span>Rating</span>
+                                </label>
+                                <input type="file" id="ratingSS" accept="image/*" data-type="rating">
+                                <div class="preview" id="preview-rating"></div>
+                            </div>
+
+                            <div class="upload-item">
+                                <label for="reviewSS" class="upload-label">
+                                    <span class="upload-icon">✍️</span>
+                                    <span>Review</span>
+                                </label>
+                                <input type="file" id="reviewSS" accept="image/*" data-type="review">
+                                <div class="preview" id="preview-review"></div>
+                            </div>
+
+                            <div class="upload-item">
+                                <label for="returnWindowSS" class="upload-label">
+                                    <span class="upload-icon">🔄</span>
+                                    <span>Return Window</span>
+                                </label>
+                                <input type="file" id="returnWindowSS" accept="image/*" data-type="returnWindow">
+                                <div class="preview" id="preview-returnWindow"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="submit-btn">Save Order</button>
+                </form>
+            </section>
+
+            <!-- Orders List Section -->
+            <section class="card orders-section">
+                <div class="section-header">
+                    <h2>📋 Your Orders</h2>
+                    <div class="search-box">
+                        <input type="text" id="searchInput" placeholder="Search orders...">
+                    </div>
+                </div>
+                <div id="ordersList" class="orders-list"></div>
+            </section>
+        </div>
+
+        <!-- Stats Dashboard -->
+        <div class="stats-dashboard">
+            <div class="stat-card">
+                <div class="stat-value" id="totalOrders">0</div>
+                <div class="stat-label">Total Orders</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="totalScreenshots">0</div>
+                <div class="stat-label">Screenshots</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="lastSync">Never</div>
+                <div class="stat-label">Last Sync</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for viewing screenshots -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <img id="modalImage" src="" alt="Screenshot">
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
