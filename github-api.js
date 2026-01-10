@@ -81,11 +81,27 @@ class GitHubAPI {
         // Remove data URL prefix if present
         const base64Content = base64Data.split(',')[1] || base64Data;
 
+        // Check if file already exists to get its SHA
+        let existingSha = null;
+        try {
+            const existingFile = await this.getFile(path);
+            if (existingFile && existingFile.sha) {
+                existingSha = existingFile.sha;
+            }
+        } catch (error) {
+            // File doesn't exist, that's fine
+        }
+
         const body = {
             message,
             content: base64Content,
             branch: this.branch
         };
+
+        // Include SHA if file exists (for updates)
+        if (existingSha) {
+            body.sha = existingSha;
+        }
 
         return await this.request(`/repos/${this.owner}/${this.repo}/contents/${path}`, {
             method: 'PUT',
