@@ -126,25 +126,42 @@ class GitHubAPI {
         const orderPath = `orders/${orderId}`;
 
         try {
-            // 1. Create order.json
+            // 1. Create or update order.json
             const orderJson = JSON.stringify(orderData, null, 2);
+
+            // Check if order.json already exists
+            let existingOrderSha = null;
+            try {
+                const existingOrder = await this.getFile(`${orderPath}/order.json`);
+                if (existingOrder && existingOrder.sha) {
+                    existingOrderSha = existingOrder.sha;
+                }
+            } catch (error) {
+                // File doesn't exist, that's fine
+            }
+
             await this.createOrUpdateFile(
                 `${orderPath}/order.json`,
                 orderJson,
-                `Add order ${orderId}`
+                `${existingOrderSha ? 'Update' : 'Add'} order ${orderId}`,
+                existingOrderSha
             );
 
-            // 2. Upload screenshots
-            const uploadPromises = Object.entries(screenshots).map(([type, screenshot]) => {
+            // 2. Upload screenshots SEQUENTIALLY to avoid race conditions
+            // Parallel uploads can cause SHA conflicts when files exist
+            for (const [type, screenshot] of Object.entries(screenshots)) {
                 const ext = screenshot.filename.split('.').pop();
-                return this.uploadImage(
-                    `${orderPath}/${type}.${ext}`,
-                    screenshot.data,
-                    `Add ${type} screenshot for order ${orderId}`
-                );
-            });
-
-            await Promise.all(uploadPromises);
+                try {
+                    await this.uploadImage(
+                        `${orderPath}/${type}.${ext}`,
+                        screenshot.data,
+                        `${existingOrderSha ? 'Update' : 'Add'} ${type} screenshot for order ${orderId}`
+                    );
+                } catch (error) {
+                    console.error(`Error uploading ${type} screenshot:`, error);
+                    // Continue with other screenshots even if one fails
+                }
+            }
 
             return true;
         } catch (error) {
